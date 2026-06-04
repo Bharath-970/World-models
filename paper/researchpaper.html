@@ -1,0 +1,685 @@
+<h1
+id="when-world-models-fail-an-empirical-study-of-representation-and-planning-failures-in-minigrid">When
+World Models Fail: An Empirical Study of Representation and Planning
+Failures in MiniGrid</h1>
+<h2 id="abstract">Abstract</h2>
+<p>Latent world models offer a principled approach to model-based
+reinforcement learning: learn a compressed representation of
+observations, predict transitions in that latent space, and plan via
+latent rollouts. In practice, this pipeline is fragile. We build an
+RSSM-based world model on MiniGrid navigation tasks and document four
+distinct collapse modes — encoder collapse, transition collapse, reward
+collapse, and planning distribution shift — along with a critical
+preprocessing bug. After fixing these, the RSSM achieves stable 6-step
+open-loop rollouts (MSE ~0.01) with accurate goal-state classification,
+yet the CEM planner performs at chance. A heuristic-reward ablation
+confirms the world model’s control-relevant precision — not the reward
+predictor — is the bottleneck. We test the data-coverage hypothesis by
+collecting 10x more goal-directed trajectories (PPO-mixed, 281k
+transitions, 82.5% success) and retraining the same architecture.
+Planning does not improve. A linear probe for agent position from RSSM
+latents achieves R² = 0.04, demonstrating that the latent representation
+encodes almost no spatial information despite near-perfect
+reconstruction. Our results suggest that reconstruction quality alone
+appears to be an insufficient indicator of planning utility and that
+control-relevant representation — rather than data quantity — may be the
+critical bottleneck.</p>
+<hr />
+<h2 id="introduction">1. Introduction</h2>
+<p>Latent world models compress high-dimensional observations into a
+structured latent space, learn a dynamics model in that space, and use
+it for planning or policy optimization. Dreamer [1], PlaNet [2], and
+TD-MPC [3] have demonstrated impressive results across Atari,
+DM-Control, and robotics domains.</p>
+<p>The standard recipe is deceptively simple: collect experience, train
+an encoder and decoder, train a transition model, train a reward
+predictor, and plan via latent rollouts. Step 5 rarely works on the
+first attempt. The research literature focuses on successes; the failure
+modes that dominate early iterations are underdocumented.</p>
+<p>This paper provides a systematic investigation of why
+latent-world-model planners fail — even when the world model appears
+successful under standard reconstruction and rollout metrics. We make
+the following contributions:</p>
+<ol type="1">
+<li><strong>Diagnosis of four collapse modes</strong> in latent world
+models: encoder collapse (pairwise latent distance ~0.01), transition
+collapse (MSE 10⁻⁶), reward collapse (constant output), and planning
+distribution shift.</li>
+<li><strong>Identification of a critical preprocessing bug</strong> in
+MiniGrid: dividing observations by 255 instead of 8 produces
+reconstruction losses that appear meaningful while measuring
+fundamentally different scales.</li>
+<li><strong>Demonstration that stable RSSM rollouts and low
+reconstruction error do not imply planning success.</strong> A
+heuristic-reward ablation shows the world model itself — not the reward
+predictor — is the bottleneck.</li>
+<li><strong>Partial falsification of the data-coverage
+hypothesis:</strong> collecting 3.4x more goal-directed data (PPO-mixed,
+281k transitions) and retraining the identical RSSM improves
+reconstruction but does not improve planning.</li>
+<li><strong>Evidence that latent representations fail to encode
+control-relevant information:</strong> a linear probe for agent position
+achieves R² = 0.04 on PPO-data latents, despite pixel reconstruction MSE
+of 0.009.</li>
+</ol>
+<hr />
+<h2 id="related-work">2. Related Work</h2>
+<h3 id="latent-world-models">Latent World Models</h3>
+<p>Recurrent State-Space Models (RSSMs) [2, 1, 4, 5] maintain a
+deterministic recurrent state h_t and a stochastic latent z_t ~ q(z_t |
+h_t, o_t), with a learned prior p(z_t | h_t) enabling open-loop
+rollouts. Training minimizes an ELBO combining reconstruction, KL
+divergence, and reward prediction. TD-MPC [3, 6] replaces the decoder
+with temporal-difference learning in latent space.</p>
+<h3 id="representation-collapse">Representation Collapse</h3>
+<p>VICReg [7] prevents collapse through variance and covariance
+regularization. SimSiam [8] and BYOL [9] use architectural asymmetries
+to the same end. In the world-model setting, collapse manifests as the
+encoder mapping all inputs to a small latent region, allowing the
+transition model to trivially predict z_{t+1} ≈ z_t.</p>
+<h3 id="planning-with-learned-models">Planning with Learned Models</h3>
+<p>CEM planning [10] and MPC are standard for latent planning. MuZero
+[11] learns a value-equivalent model and plans via MCTS. A key challenge
+is distribution shift: planners evaluate prior-rollout latents while
+reward predictors are trained on posterior-encoded latents. Dreamer
+addresses this with a value function trained on prior-rollout data.</p>
+<h3 id="objective-mismatch-in-world-models">Objective Mismatch in World
+Models</h3>
+<p>Several prior works have identified the gap between reconstruction
+and planning objectives. Lambert et al. [15] formalize “objective
+mismatch” in model-based RL: the model’s training objective (pixel MSE,
+prediction error) does not align with the planner’s objective (task
+reward). Janner et al. [16] demonstrate that model-based policy
+optimization requires careful regularization to avoid exploitation of
+model errors. Our work extends these findings by providing a concrete
+mechanistic explanation — the latent representation fails to encode
+control-relevant position information (R² = 0.04) — rather than treating
+the mismatch as a black-box phenomenon.</p>
+<h3 id="minigrid">MiniGrid</h3>
+<p>MiniGrid [12] provides partially observable grid-world tasks with
+7x7x3 image observations (pixel values in {0, 1, 2, 5, 8}) and sparse
+terminal rewards. Previous work has noted that random-policy data leads
+to poor dynamics learning [13], but a systematic decomposition of
+failure modes has been lacking.</p>
+<hr />
+<h2 id="method">3. Method</h2>
+<h3 id="environments">3.1 Environments</h3>
+<p>We use two MiniGrid [12] navigation tasks:</p>
+<ul>
+<li><strong>MiniGrid-Empty-5x5-v0:</strong> A 5x5 grid with the agent
+starting at (1,1) facing right and the goal at (3,3). Optimal path: 4
+steps.</li>
+<li><strong>MiniGrid-FourRooms-v0:</strong> A 19x19 grid with four rooms
+connected by narrow doorways.</li>
+</ul>
+<p>Both environments return 7x7x3 RGB observations with pixel values in
+{0, 1, 2, 5, 8}. Rewards are sparse and terminal: +1 on reaching the
+goal, 0 otherwise.</p>
+<h3 id="datasets">3.2 Datasets</h3>
+<table>
+<thead>
+<tr>
+<th>Dataset</th>
+<th>Episodes</th>
+<th>Transitions</th>
+<th>Success Rate</th>
+<th>Mean Length</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Random (Empty-5x5)</td>
+<td>1,000</td>
+<td>83,212</td>
+<td>39.3%</td>
+<td>83.2</td>
+</tr>
+<tr>
+<td>Random (FourRooms)</td>
+<td>1,000</td>
+<td>196,257</td>
+<td>3.8%</td>
+<td>—</td>
+</tr>
+<tr>
+<td>PPO-mixed</td>
+<td>10,000</td>
+<td>281,441</td>
+<td>82.5%</td>
+<td>28.1</td>
+</tr>
+</tbody>
+</table>
+<p>The PPO-mixed dataset is collected by a partially-trained PPO policy
+with 70/30 action ratio (PPO/random), providing 10x more episodes with
+goal-directed behavior.</p>
+<p>All observations are normalized by dividing by 8 (the maximum pixel
+value). This preprocessing is critical: observations divided by 255
+produce a decoder output range [0, 1] against ground-truth values in [0,
+0.031], yielding a meaningless reconstruction loss.</p>
+<h3 id="rssm-architecture">3.3 RSSM Architecture</h3>
+<p>Our architecture follows PlaNet [2] and DreamerV1 [1]:</p>
+<ul>
+<li><strong>Trunk encoder:</strong> 3-layer CNN (3→16→32→64 channels,
+3x3 kernels, stride 2) + linear projection to 256-dim features.</li>
+<li><strong>Posterior:</strong> q(z_t | h_t, o_t) = N(μ_q, σ_q), MLP
+from [features_t, h_t].</li>
+<li><strong>Prior:</strong> p(z_t | h_t) = N(μ_p, σ_p), MLP from
+h_t.</li>
+<li><strong>GRU:</strong> h_t = GRU(h_{t-1}, [z_{t-1}, a_{t-1}]).</li>
+<li><strong>Decoder:</strong> 3-layer transposed CNN with sigmoid
+output.</li>
+<li><strong>Overshoot heads:</strong> MLPs predicting z_{t+k} from h_t
+for k ∈ {1, 3, 5}.</li>
+</ul>
+<p>Total parameters: 1.18M. Latent dimension: 64. GRU dimension: 256.
+Action dimension: 7 (one-hot). An overview of the complete pipeline and
+failure progression is shown in Figure 1.</p>
+<h3 id="three-stage-curriculum">3.4 Three-Stage Curriculum</h3>
+<p>We train in three stages to stabilize the full objective:</p>
+<p><strong>Stage A (Autoencoder Warmup):</strong> Train trunk,
+posterior, decoder with weak KL to N(0, I): L_A = ||ô_t - o_t||² + β ·
+KL(q(z_t | o_t) || N(0, I)), β = 0.001</p>
+<p><strong>Stage B (Dynamics):</strong> Add GRU and learned prior: L_B =
+||ô_t - o_t||² + β · KL(q(z_t | h_t, o_t) || p(z_t | h_t)), β = 0.1</p>
+<p><strong>Stage C (Latent Overshooting):</strong> Add multi-step
+consistency: L_C = L_B + Σ_{k∈{1,3,5}} w_k · KL(sg[q(z_{t+k})] ||
+p(z_{t+k} | h_t)), w = [1.0, 0.5, 0.25]</p>
+<p>The overshoot weight w_k decreases with step count, prioritizing
+short-horizon consistency.</p>
+<h3 id="vicreg-encoder-regularization">3.5 VICReg Encoder
+Regularization</h3>
+<p>Before the RSSM, the deterministic encoder collapsed to pairwise
+distance ~0.0075. We apply VICReg [7]: L_VICReg = λ_v · ReLU(1 - std(z))
++ λ_c · Σ_{i≠j} [Cov(z)]_{ij}²</p>
+<p>This expands the latent representation to std ≈ 0.84 with pairwise
+distance 12.7. The RSSM trunk is initialized from the VICReg-trained
+encoder.</p>
+<h3 id="reward-predictor">3.6 Reward Predictor</h3>
+<p>Binary goal-conditioned classifier: r̂ = σ(MLP([z_t, z_g])). Trained
+with Hindsight Experience Replay [14]: 50% goal pairs (label 1), 50%
+random non-goal pairs (label 0). Binary cross-entropy avoids the
+saturation problem of soft-distance HER formulations.</p>
+<h3 id="cem-planner">3.7 CEM Planner</h3>
+<p>Cross-Entropy Method [10] planning in latent space: sample N action
+sequences of horizon H, rollout through the RSSM prior, score with
+reward predictor, select top E elites, refit distribution, iterate.
+Defaults: N = 256, E = 16, I = 5, H = 4 (Empty-5x5), H = 6
+(FourRooms).</p>
+<hr />
+<h2 id="experiments">4. Experiments</h2>
+<h3 id="initial-failure-collapsed-deterministic-model">4.1 Initial
+Failure: Collapsed Deterministic Model</h3>
+<p>The first deterministic autoencoder (CNN encoder, MLP transition, CNN
+decoder) fails catastrophically:</p>
+<table>
+<thead>
+<tr>
+<th>Metric</th>
+<th>Empty-5x5</th>
+<th>FourRooms</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Recon MSE</td>
+<td>5.22 (artifact)</td>
+<td>1.29</td>
+</tr>
+<tr>
+<td>Transition MSE</td>
+<td>3 × 10⁻⁷</td>
+<td>3 × 10⁻⁷</td>
+</tr>
+</tbody>
+</table>
+<p>The reconstruction MSE of 5.22 is entirely attributable to the
+normalization bug (dividing by 255 instead of 8). After correction, the
+baseline is MSE 0.067.</p>
+<p>The CEM planner on this collapsed model achieves 0% on Empty-5x5
+where a random policy succeeds 43.3% of the time.</p>
+<h3 id="rssm-curriculum-training">4.2 RSSM Curriculum Training</h3>
+<figure>
+<img src="../figures/rollout_comparison.png"
+alt="Figure 2: Ground-truth observations and corresponding RSSM open-loop predictions over a 6-step rollout. Despite accumulating blur, the model maintains consistent object placement and visually plausible renderings." />
+<figcaption aria-hidden="true">Figure 2: Ground-truth observations and
+corresponding RSSM open-loop predictions over a 6-step rollout. Despite
+accumulating blur, the model maintains consistent object placement and
+visually plausible renderings.</figcaption>
+</figure>
+<p>The three-stage curriculum produces a stable world model on random
+data (83k transitions):</p>
+<p><strong>Stage A:</strong> Recon 0.0022, KL 2.56, posterior std 0.98.
+<strong>Stage B:</strong> Recon 0.0093, KL 0.015, prior/post std ~0.99.
+<strong>Stage C:</strong> Recon 0.0092, overshoot 0.64.</p>
+<p>Open-loop rollouts remain stable across 6 steps:</p>
+<table>
+<thead>
+<tr>
+<th>Step</th>
+<th>1</th>
+<th>2</th>
+<th>3</th>
+<th>4</th>
+<th>5</th>
+<th>6</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>MSE</td>
+<td>0.0066</td>
+<td>0.0094</td>
+<td>0.0126</td>
+<td>0.0100</td>
+<td>0.0088</td>
+<td>0.0115</td>
+</tr>
+</tbody>
+</table>
+<h3 id="rssm-planning-fails">4.3 RSSM Planning Fails</h3>
+<p>The binary HER reward predictor achieves 97.6% accuracy on
+posterior-encoded states. RSSM CEM planner results:</p>
+<table>
+<thead>
+<tr>
+<th>Method</th>
+<th>Empty-5x5</th>
+<th>FourRooms</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Random</td>
+<td>23%</td>
+<td>5%</td>
+</tr>
+<tr>
+<td>RSSM Planner</td>
+<td>30%</td>
+<td>5%</td>
+</tr>
+</tbody>
+</table>
+<h3 id="heuristic-reward-diagnostic">4.4 Heuristic Reward
+Diagnostic</h3>
+<p>To isolate whether the bottleneck is the reward predictor or the
+world model, we replace the learned reward with pixel-space distance to
+goal (an oracle). If the reward predictor is the problem, an oracle
+should enable planning.</p>
+<table>
+<thead>
+<tr>
+<th>Seed</th>
+<th>Random</th>
+<th>Heuristic Planner</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>1</td>
+<td>25%</td>
+<td>40%</td>
+</tr>
+<tr>
+<td>2</td>
+<td>25%</td>
+<td>30%</td>
+</tr>
+<tr>
+<td>3</td>
+<td>25%</td>
+<td>17%</td>
+</tr>
+<tr>
+<td>4</td>
+<td>25%</td>
+<td>23%</td>
+</tr>
+<tr>
+<td><strong>Avg</strong></td>
+<td>25%</td>
+<td><strong>23%</strong></td>
+</tr>
+</tbody>
+</table>
+<p>Average 23% (±7%) — not significantly different from random. The
+world model’s control-relevant precision, not the reward predictor, is
+the bottleneck.</p>
+<h3 id="data-coverage-hypothesis-ppo-experiment">4.5 Data-Coverage
+Hypothesis: PPO Experiment</h3>
+<p>The preceding results implicate the world model’s prediction quality.
+A natural hypothesis is data coverage: the random dataset (83k
+transitions, 39.3% success) lacks diverse goal-directed sequences. We
+test this by collecting a PPO-mixed dataset (281k transitions, 82.5%
+success) and retraining the identical RSSM architecture.</p>
+<table>
+<thead>
+<tr>
+<th>Metric</th>
+<th>Random Data</th>
+<th>PPO Data</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Transitions</td>
+<td>83k</td>
+<td>281k</td>
+</tr>
+<tr>
+<td>Success rate</td>
+<td>39.3%</td>
+<td>82.5%</td>
+</tr>
+<tr>
+<td>Stage A recon</td>
+<td>0.0022</td>
+<td><strong>0.0010</strong></td>
+</tr>
+<tr>
+<td>Stage C overshoot</td>
+<td>0.64</td>
+<td><strong>0.43</strong></td>
+</tr>
+<tr>
+<td>Reward predictor acc</td>
+<td>97.6%</td>
+<td>98.2%</td>
+</tr>
+<tr>
+<td>Random baseline</td>
+<td>23%</td>
+<td>17-35%</td>
+</tr>
+<tr>
+<td><strong>Learned planner</strong></td>
+<td><strong>30%</strong></td>
+<td><strong>10%</strong></td>
+</tr>
+<tr>
+<td><strong>Heuristic planner</strong></td>
+<td><strong>23%</strong></td>
+<td><strong>30%</strong></td>
+</tr>
+</tbody>
+</table>
+<p>Despite 3.4x more transitions and 2x more goal-directed data,
+planning does not meaningfully improve. This partially falsifies the
+data-coverage hypothesis.</p>
+<h4 id="summary-table">Summary Table</h4>
+<table>
+<colgroup>
+<col style="width: 19%" />
+<col style="width: 19%" />
+<col style="width: 25%" />
+<col style="width: 36%" />
+</colgroup>
+<thead>
+<tr>
+<th>Stage</th>
+<th>Recon</th>
+<th>Planner</th>
+<th>Main Failure</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Deterministic AE</td>
+<td>5.22 (artifact)</td>
+<td>0%</td>
+<td>Encoder + transition collapse</td>
+</tr>
+<tr>
+<td>+VICReg</td>
+<td>0.067</td>
+<td>0%</td>
+<td>OOD drift after 2-3 steps</td>
+</tr>
+<tr>
+<td>RSSM (random data)</td>
+<td>0.0092</td>
+<td>30%</td>
+<td>Position encoding (R² = 0.28)</td>
+</tr>
+<tr>
+<td>RSSM (PPO data)</td>
+<td>0.0010</td>
+<td>10%</td>
+<td>Position encoding (R² = 0.04)</td>
+</tr>
+</tbody>
+</table>
+<h3 id="position-tracking-analysis">4.6 Position-Tracking Analysis</h3>
+<p>If the latent space is the bottleneck, how much control-relevant
+information does it encode? We train a linear probe — a single linear
+layer mapping 64-dim latents to (x, y) agent position — on
+posterior-encoded latents.</p>
+<table>
+<thead>
+<tr>
+<th>Metric</th>
+<th>Random RSSM</th>
+<th>PPO RSSM</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Test RMSE (cells)</td>
+<td>0.664</td>
+<td>0.758</td>
+</tr>
+<tr>
+<td>Baseline (mean)</td>
+<td>0.783</td>
+<td>0.775</td>
+</tr>
+<tr>
+<td>R²</td>
+<td><strong>0.279</strong></td>
+<td><strong>0.043</strong></td>
+</tr>
+</tbody>
+</table>
+<p>The random-data RSSM captures modest position information (R² =
+0.28). The PPO-data RSSM captures essentially none (R² = 0.04). This
+counterintuitive result — more data yielding worse position encoding —
+has a consistent explanation: the PPO policy takes efficient center
+paths (mean length 28 steps vs 83), producing a spatially narrow data
+distribution. The RSSM optimizes for reconstruction, not position
+tracking; with less positional variation in training data, the latent
+space has less incentive to encode position. The random-policy data,
+with its aimless wandering, provides more spatial diversity and thus
+more position-identifiable latents.</p>
+<figure>
+<img src="../figures/position_probe.png"
+alt="Figure 3: Linear-probe performance for agent position prediction. Despite improved reconstruction quality, PPO-trained latents contain substantially less linearly recoverable spatial information (R² = 0.04 vs 0.28)." />
+<figcaption aria-hidden="true">Figure 3: Linear-probe performance for
+agent position prediction. Despite improved reconstruction quality,
+PPO-trained latents contain substantially less linearly recoverable
+spatial information (R² = 0.04 vs 0.28).</figcaption>
+</figure>
+<p>This result provides a mechanistic explanation for the planner’s
+failure despite strong reconstruction metrics. The latent representation
+encodes almost no agent-position information (R² = 0.04) while achieving
+near-perfect pixel reconstruction (MSE 0.009). On a 7x7 grid where most
+pixels are walls, the reconstruction objective has no reason to
+prioritize single-cell position accuracy over wall-color accuracy — but
+the planner needs exact position to navigate.</p>
+<hr />
+<h2 id="failure-analysis">5. Failure Analysis</h2>
+<p>We identify four collapse modes and one critical preprocessing error
+that practitioners should systematically check.</p>
+<figure>
+<img src="../figures/failure_progression.png"
+alt="Figure 1: Failure progression. The pipeline progresses through successive collapse modes, fixes, and diagnostic experiments. The final position probe (R² = 0.04) provides the mechanistic explanation for planning failure." />
+<figcaption aria-hidden="true">Figure 1: Failure progression. The
+pipeline progresses through successive collapse modes, fixes, and
+diagnostic experiments. The final position probe (R² = 0.04) provides
+the mechanistic explanation for planning failure.</figcaption>
+</figure>
+<h3 id="normalization-bug">5.1 Normalization Bug</h3>
+<p><strong>Problem:</strong> MiniGrid observations use pixel values in
+{0, 1, 2, 5, 8}. Dividing by 255 places sigmoid-decoder outputs [0, 1]
+against targets [0, 0.031], producing a loss that appears meaningful
+while measuring different scales.</p>
+<p><strong>Fix:</strong> Divide by 8. Reconstruction MSE drops from 5.22
+to 0.067 — a 98.7% reduction with no architectural change.</p>
+<p><strong>Lesson:</strong> Always verify preprocessing matches the
+model’s output distribution.</p>
+<h3 id="encoder-collapse">5.2 Encoder Collapse</h3>
+<p><strong>Mechanism:</strong> MSE reconstruction is dominated by static
+wall pixels. The encoder outputs a near-constant vector; the decoder
+renders the average frame.</p>
+<p><strong>Symptom:</strong> Pairwise latent distance ~0.0075.
+Per-dimension std ~0.0.</p>
+<p><strong>Detection:</strong> Compute pairwise Euclidean distance on
+encoder outputs. If mean distance is far below the latent dimension
+norm, collapse is active.</p>
+<p><strong>Fix:</strong> VICReg (variance + covariance regularization).
+Post-fix: pairwise distance 12.7, std 0.84.</p>
+<h3 id="transition-collapse">5.3 Transition Collapse</h3>
+<p><strong>Mechanism:</strong> A deterministic MLP with LayerNorm can
+learn identity as a low-loss fixed point, especially when the dataset
+has many no-op transitions.</p>
+<p><strong>Symptom:</strong> Training MSE &lt; 10⁻⁶. Multi-step error
+does not grow with horizon.</p>
+<p><strong>Detection:</strong> Compare ||z_{t+1} - z_t|| against
+||ẑ_{t+1} - z_t|| per action. If predicted change is near-zero while
+true change is non-zero, collapse is active.</p>
+<p><strong>Fix:</strong> Residual parameterization z_{t+1} = z_t + α·Δ,
+or RSSM’s stochastic latent with KL divergence.</p>
+<h3 id="reward-predictor-collapse">5.4 Reward Predictor Collapse</h3>
+<p><strong>Mechanism:</strong> Sparse terminal rewards (&gt;99.9% zero)
+cause the predictor to converge to a constant near zero. Compounded by
+encoder collapse: indistinguishable latents make separation
+impossible.</p>
+<p><strong>Symptom:</strong> Predictor output constant across all
+states.</p>
+<p><strong>Detection:</strong> Histogram of reward predictions. If all
+values fall in a narrow band, collapse is active.</p>
+<p><strong>Fix:</strong> Binary HER with 50/50 goal/non-goal sampling
+creates a balanced classification task.</p>
+<h3 id="planning-distribution-shift">5.5 Planning Distribution
+Shift</h3>
+<p><strong>Mechanism:</strong> The reward predictor is trained on
+posterior-encoded latents z ~ q(z | h, o). At planning time, it
+evaluates prior-predicted latents ẑ ~ p(z | h, a). Posterior latents are
+corrected by the observation; prior latents accumulate open-loop
+error.</p>
+<p><strong>Symptom:</strong> High reward on posterior states (~0.86),
+zero reward on prior rollouts (~0.00).</p>
+<p><strong>Detection:</strong> Compare predictor output on posterior vs
+prior latents for the same state.</p>
+<p><strong>Status:</strong> De-prioritized after the heuristic-reward
+ablation (Section 4.4) showed that even an oracle reward signal cannot
+guide planning. The world model itself is the bottleneck.</p>
+<h3 id="evidence-for-a-reconstructioncontrol-mismatch">5.6 Evidence for
+a Reconstruction–Control Mismatch</h3>
+<p>The heuristic-reward ablation and position probe together pin down
+the root cause. The RSSM achieves pixel MSE of 0.009 and stable
+rollouts, but a linear probe for position achieves R² = 0.04. The
+reconstruction objective does not prioritize single-cell position
+accuracy, yet the planner requires exactly that.</p>
+<p><strong>Central finding:</strong> Pixel-level prediction quality is
+necessary but not sufficient for planning with learned world models.
+Reconstruction metrics and control-relevant representation quality are
+not aligned on MiniGrid, and this misalignment is the fundamental
+bottleneck.</p>
+<hr />
+<h2 id="discussion">6. Discussion</h2>
+<h3 id="interpretation">6.1 Interpretation</h3>
+<p>Our results suggest the RSSM latent representation captures
+reconstruction-relevant information more effectively than
+control-relevant information. This manifests concretely: the latent
+space renders passable images (MSE 0.009) but does not linearly encode
+the agent’s position (R² = 0.04). The PPO experiment confirms that
+collecting more goal-directed data does not close this gap — the latent
+structure, not data coverage, is the bottleneck.</p>
+<h3 id="the-ppo-result-in-context">6.2 The PPO Result in Context</h3>
+<p>The PPO experiment is valuable precisely because it produced a
+negative result. Three hypotheses are ruled out or weakened:</p>
+<ol type="1">
+<li><strong>Insufficient data quantity:</strong> 3.4x more transitions
+did not help.</li>
+<li><strong>Insufficient goal-directedness:</strong> 82.5% success rate
+did not help.</li>
+<li><strong>Insufficient episode diversity:</strong> 10x more episodes
+did not help.</li>
+</ol>
+<p>The remaining hypotheses — control-irrelevant latent structure,
+insufficient network capacity, planner limitations, and the
+value-function gap — are all candidate directions for future
+investigation.</p>
+<h3 id="limitations">6.3 Limitations</h3>
+<ul>
+<li><strong>Single observation modality:</strong> MiniGrid’s 7x7
+symbolic observations differ substantially from natural images.</li>
+<li><strong>Single environment scale:</strong> The 5x5 grid may be too
+small to distinguish position-tracking errors from planning noise.</li>
+<li><strong>No value function:</strong> Dreamer’s value-function
+bootstrap was not implemented.</li>
+<li><strong>Modest compute budget:</strong> Total training across all
+experiments was under 2 hours on a single RTX 4000 Ada GPU.</li>
+</ul>
+<hr />
+<h2 id="future-work">7. Future Work</h2>
+<p>The position-probe diagnostic (R² = 0.04) suggests that
+representations explicitly designed for control may be necessary.
+Promising directions include:</p>
+<ul>
+<li><strong>Discrete latents (DreamerV2/V3):</strong> Categorical
+representations can learn more structured state spaces than continuous
+Gaussians.</li>
+<li><strong>Object-centric representations:</strong> Representing agent
+and goal positions as explicit spatial variables rather than distributed
+features.</li>
+<li><strong>Value-function bootstrap:</strong> Dreamer’s critic may
+partially compensate for weak dynamics by learning a value estimate on
+prior-rollout data.</li>
+<li><strong>Control-aware training objectives:</strong> Loss functions
+that directly reward accurate prediction of control-relevant quantities
+(agent position, goal distance).</li>
+</ul>
+<p>The linear probe can serve as a lightweight validation for any of
+these approaches: train a linear layer to predict the agent’s position
+from latents. If R² is low, the representation is not
+planning-ready.</p>
+<hr />
+<h2 id="conclusion">8. Conclusion</h2>
+<p>We built a latent-world-model planner for MiniGrid navigation,
+progressed through four collapse modes to a working RSSM, and found that
+planning remained at chance. A heuristic-reward ablation isolated the
+world model as the bottleneck. A 3.4x larger PPO-mixed dataset improved
+reconstruction but not planning, partially falsifying the data-coverage
+hypothesis.</p>
+<p>The position probe provides the mechanistic explanation: a linear
+layer trained to predict (x, y) from RSSM latents achieves R² = 0.04.
+The latent space does not encode control-relevant spatial information,
+even though it reconstructs images with MSE 0.009. Reconstruction
+quality and planning utility are not aligned, and this misalignment —
+not data coverage — is the fundamental challenge facing
+latent-world-model planning on MiniGrid.</p>
+<hr />
+<h2 id="references">References</h2>
+<p>[1] Hafner et al., “Dream to Control: Learning Behaviors by Latent
+Imagination,” ICLR 2020. [2] Hafner et al., “Learning Latent Dynamics
+for Planning from Pixels,” ICML 2019. [3] Hansen et al., “Temporal
+Difference Learning for Model Predictive Control,” ICML 2022. [4] Hafner
+et al., “Mastering Atari with Discrete World Models,” ICLR 2021. [5]
+Hafner et al., “DreamerV3: Mastering Diverse Domains through World
+Models,” arXiv 2023. [6] Hansen et al., “TD-MPC2: Scalable, Robust World
+Models for Continuous Control,” arXiv 2023. [7] Bardes et al., “VICReg:
+Variance-Invariance-Covariance Regularization for Self-Supervised
+Learning,” ICLR 2022. [8] Chen &amp; He, “Exploring Simple Siamese
+Representation Learning,” CVPR 2021. [9] Grill et al., “Bootstrap Your
+Own Latent,” NeurIPS 2020. [10] Rubinstein, “The Cross-Entropy Method
+for Combinatorial and Continuous Optimization,” 1999. [11] Schrittwieser
+et al., “Mastering Atari, Go, Chess and Shogi by Planning with a Learned
+Model,” Nature 2020. [12] Chevalier-Boisvert et al., “MiniGrid: A
+Minimalistic Gridworld Environment,” 2018. [13] Sekani et al., “Learning
+World Models on MiniGrid,” 2021. [14] Andrychowicz et al., “Hindsight
+Experience Replay,” NeurIPS 2017. [15] Lambert et al., “Objective
+Mismatch in Model-based Reinforcement Learning,” arXiv 2020. [16] Janner
+et al., “When to Trust Your Model: Model-Based Policy Optimization,”
+NeurIPS 2019.</p>

@@ -1,0 +1,27 @@
+{
+  "env": "MiniGrid-Empty-5x5-v0",
+  "trajectories": "data/trajectories.pkl",
+  "epochs": 20,
+  "results": {
+    "32": {
+      "world_model_loss": 3.870625960720747e-07,
+      "reward_predictor_loss": 0.0015033861264574014,
+      "ckpt_dir": "checkpoints_ablation/Empty-5x5/MiniGrid-Empty-5x5-v0/ld_32"
+    },
+    "64": {
+      "world_model_loss": 5.518445432400167e-07,
+      "reward_predictor_loss": 0.0015038537157680302,
+      "ckpt_dir": "checkpoints_ablation/Empty-5x5/MiniGrid-Empty-5x5-v0/ld_64"
+    },
+    "128": {
+      "world_model_loss": 7.770023541958504e-07,
+      "reward_predictor_loss": 0.0015037088529768054,
+      "ckpt_dir": "checkpoints_ablation/Empty-5x5/MiniGrid-Empty-5x5-v0/ld_128"
+    },
+    "256": {
+      "world_model_loss": 1.9577115551960293e-06,
+      "reward_predictor_loss": 0.0015035344091579909,
+      "ckpt_dir": "checkpoints_ablation/Empty-5x5/MiniGrid-Empty-5x5-v0/ld_256"
+    }
+  }
+}

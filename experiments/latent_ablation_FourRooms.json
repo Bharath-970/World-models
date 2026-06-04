@@ -1,0 +1,27 @@
+{
+  "env": "MiniGrid-FourRooms-v0",
+  "trajectories": "data/trajectories_hard.pkl",
+  "epochs": 20,
+  "results": {
+    "32": {
+      "world_model_loss": 2.6273776683745007e-06,
+      "reward_predictor_loss": 0.0001519062334296574,
+      "ckpt_dir": "checkpoints_ablation/FourRooms/MiniGrid-FourRooms-v0/ld_32"
+    },
+    "64": {
+      "world_model_loss": 2.865083467551096e-06,
+      "reward_predictor_loss": 0.00015217469895799593,
+      "ckpt_dir": "checkpoints_ablation/FourRooms/MiniGrid-FourRooms-v0/ld_64"
+    },
+    "128": {
+      "world_model_loss": 1.7013332092074591e-06,
+      "reward_predictor_loss": 0.0001519280056530969,
+      "ckpt_dir": "checkpoints_ablation/FourRooms/MiniGrid-FourRooms-v0/ld_128"
+    },
+    "256": {
+      "world_model_loss": 1.6866627615956522e-06,
+      "reward_predictor_loss": 0.00015196924723689123,
+      "ckpt_dir": "checkpoints_ablation/FourRooms/MiniGrid-FourRooms-v0/ld_256"
+    }
+  }
+}

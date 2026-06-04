@@ -1,0 +1,31 @@
+{
+  "env": "MiniGrid-FourRooms-v0",
+  "checkpoints": "checkpoints_hard",
+  "num_episodes": 30,
+  "results": {
+    "1": {
+      "reward_mean": 0.051666666666666666,
+      "reward_std": 0.1934446231411517,
+      "success_rate": 0.06666666666666667,
+      "mean_steps_to_goal": 25.0
+    },
+    "2": {
+      "reward_mean": 0.028233333333333333,
+      "reward_std": 0.15204115305476415,
+      "success_rate": 0.03333333333333333,
+      "mean_steps_to_goal": 17.0
+    },
+    "5": {
+      "reward_mean": 0.0,
+      "reward_std": 0.0,
+      "success_rate": 0.0,
+      "mean_steps_to_goal": null
+    },
+    "10": {
+      "reward_mean": 0.07719999999999999,
+      "reward_std": 0.234062299399113,
+      "success_rate": 0.1,
+      "mean_steps_to_goal": 25.333333333333332
+    }
+  }
+}
