@@ -41,10 +41,11 @@ Latest PDF: [`paper/researchpaper.pdf`](paper/researchpaper.pdf)
 ## Citation
 
 ```bibtex
-@misc{varma2025reconstruction,
+@misc{varma2026reconstruction,
   title={Reconstruction Is Not Enough: Diagnosing World Model Failures in MiniGrid},
   author={S. Bharath Varma},
   year={2026},
+  month={jun},
   howpublished={\url{https://github.com/Bharath-970/World-models}}
 }
 ```
