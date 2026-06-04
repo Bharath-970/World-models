@@ -142,7 +142,7 @@ The CEM planner on this collapsed model achieves 0% on Empty-5x5 where a random 
 
 <img src="file:///Users/bharath/world-models/figures/rollout_comparison.png" alt="Rollout comparison" />
 
-**Figure 1:** Rollout comparison. Ground-truth observations (top) and RSSM open-loop predictions (bottom) over six steps.
+**Figure 1:** Rollout comparison. Top row: ground-truth observations. Middle row: RSSM open-loop predictions. Bottom row: per-pixel absolute error. Predictions remain stable across six steps with no catastrophic divergence.
 
 The three-stage curriculum produces a stable world model on random data (83k transitions):
 
