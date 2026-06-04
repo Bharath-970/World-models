@@ -1,0 +1,23 @@
+{
+  "env": "MiniGrid-FourRooms-v0",
+  "config": {
+    "horizon": 6,
+    "num_samples": 128,
+    "num_elites": 16,
+    "num_iters": 4,
+    "max_steps": 200
+  },
+  "random": {
+    "success_rate": 0.05,
+    "mean_return": 0.0491,
+    "n_episodes": 20,
+    "env": "MiniGrid-FourRooms-v0"
+  },
+  "planner": {
+    "success_rate": 0.05,
+    "mean_return": 0.0491,
+    "mean_length": 95.1,
+    "n_episodes": 20,
+    "env": "MiniGrid-FourRooms-v0"
+  }
+}

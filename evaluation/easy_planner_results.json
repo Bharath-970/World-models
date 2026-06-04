@@ -1,0 +1,24 @@
+{
+  "env": "MiniGrid-Empty-5x5-v0",
+  "num_episodes": 30,
+  "max_steps": 256,
+  "random": {
+    "reward_mean": 0.20503333333333332,
+    "reward_std": 0.26060576654317447,
+    "success_rate": 0.43333333333333335,
+    "mean_steps_to_goal": 58.53846153846154
+  },
+  "planner": {
+    "reward_mean": 0.0,
+    "reward_std": 0.0,
+    "success_rate": 0.0,
+    "mean_steps_to_goal": null
+  },
+  "ppo": {
+    "reward_mean": 0.0,
+    "reward_std": 0.0,
+    "success_rate": 0.0,
+    "mean_steps_to_goal": null,
+    "training_steps": 20000
+  }
+}

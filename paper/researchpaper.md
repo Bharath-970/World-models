@@ -346,6 +346,8 @@ We built a latent-world-model planner for MiniGrid navigation, progressed throug
 
 The position probe provides the mechanistic explanation: a linear layer trained to predict (x, y) from RSSM latents achieves R² = 0.04. The latent space does not encode control-relevant spatial information, even though it reconstructs images with MSE 0.009. Reconstruction quality and planning utility are not aligned, and this misalignment — not data coverage — is the fundamental challenge facing latent-world-model planning on MiniGrid.
 
+**Code availability.** All code, figures, and the latest version of this paper are available at https://github.com/Bharath-970/World-models.
+
 ---
 
 ## References

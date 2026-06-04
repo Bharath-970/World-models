@@ -1,0 +1,23 @@
+{
+  "env": "MiniGrid-Empty-5x5-v0",
+  "config": {
+    "horizon": 5,
+    "num_samples": 64,
+    "num_elites": 8,
+    "num_iters": 3,
+    "max_steps": 64
+  },
+  "random": {
+    "success_rate": 0.15,
+    "mean_return": 0.09645,
+    "n_episodes": 20,
+    "env": "MiniGrid-Empty-5x5-v0"
+  },
+  "planner": {
+    "success_rate": 0.15,
+    "mean_return": 0.07709999999999999,
+    "mean_length": 62.5,
+    "n_episodes": 20,
+    "env": "MiniGrid-Empty-5x5-v0"
+  }
+}

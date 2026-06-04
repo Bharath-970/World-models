@@ -1,0 +1,18 @@
+{
+  "env": "MiniGrid-FourRooms-v0",
+  "num_episodes": 30,
+  "max_steps": 250,
+  "horizon": 25,
+  "random": {
+    "reward_mean": 0.03153333333333333,
+    "reward_std": 0.16981219691830804,
+    "success_rate": 0.03333333333333333,
+    "mean_steps_to_goal": 6.0
+  },
+  "mpc_planner": {
+    "reward_mean": 0.07483333333333334,
+    "reward_std": 0.2253974391060279,
+    "success_rate": 0.13333333333333333,
+    "mean_steps_to_goal": 48.75
+  }
+}

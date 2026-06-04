@@ -1,0 +1,18 @@
+{
+  "env": "MiniGrid-Empty-5x5-v0",
+  "num_episodes": 50,
+  "max_steps": 64,
+  "horizon": 10,
+  "random": {
+    "reward_mean": 0.24285999999999996,
+    "reward_std": 0.3066202870000614,
+    "success_rate": 0.4,
+    "mean_steps_to_goal": 43.65
+  },
+  "mpc_planner": {
+    "reward_mean": 0.84122,
+    "reward_std": 0.15475959291753127,
+    "success_rate": 0.98,
+    "mean_steps_to_goal": 15.73469387755102
+  }
+}

@@ -1,0 +1,18 @@
+{
+  "env": "MiniGrid-Empty-5x5-v0",
+  "num_episodes": 20,
+  "max_steps": 64,
+  "horizon": 8,
+  "random": {
+    "reward_mean": 0.08295,
+    "reward_std": 0.19960923701071548,
+    "success_rate": 0.15,
+    "mean_steps_to_goal": 49.666666666666664
+  },
+  "vicreg_planner": {
+    "reward_mean": 0.0,
+    "reward_std": 0.0,
+    "success_rate": 0.0,
+    "mean_steps_to_goal": null
+  }
+}
